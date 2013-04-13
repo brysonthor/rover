@@ -1,7 +1,10 @@
 #include <msp430x22x4.h>
 #include "eZ430X.h"
-#include <stdio.h>
-#include "adc.h"
+//#include "graphics.h"
+//#include "lcd.h"
+//#include <stdio.h>
+//#include "adc.h"
+
 /*
  * Function	Description	Note
 int RBX430_init(enum _430clock clock);					Initialize the LCD reading/writing.
@@ -27,6 +30,7 @@ void lcd_volume(uint8 volume);							Adjusts the LCD brightness	Range of volume 
 void lcd_image(const unsigned char* image, uint16 x, uint16 y);	Write an image to LCD	x = 0-159, y = 0-159
  *
  * */
+
 //*******************************************************************************
 //   eZ430X jumper configurations and pin-outs:
 //
@@ -60,57 +64,34 @@ void lcd_image(const unsigned char* image, uint16 x, uint16 y);	Write an image t
 //                   .-----------------------------.
 //
 //******************************************************************************
-#define myCLOCK          12000000           // clock speed (12 mhz)
+/*
+ * Design: 4 servos move left/right/back-and-forth. 3 Modes per servo.
+ *
+ * speed- potentially change the speed based off of the potentiometer.
+ *
+ * lcd display- possibly for feedback due to the fact that there are only a few buttons.
+ *
+ *
+ */
+
+#define myCLOCK          1000000            // clock speed (12 mhz)
 #define FREQUENCY(freq)  ((freq*(myCLOCK/1000))/(1000*8))
 #define TIMERB_FREQ      FREQUENCY(40000)   // 40 ms
-//#define TIMERA_FREQ		  FREQUENCY(40000)
+#define TIMERA_FREQ		  FREQUENCY(40000)
 #define SERVO_RIGHT      FREQUENCY(400)     // 0.4 ms
 #define SERVO_MIDDLE     FREQUENCY(1500)    // 1.5 ms
 #define SERVO_LEFT       FREQUENCY(2600)    // 2.6 ms
-#define SERVO_SPEED      12					//the lower the faster it goes
-//volatile int WDT_cps_cnt;				// WD cycles per second
-extern volatile int left_forward = 1;
-extern volatile int right_forward = 1;
+#define SERVO_SPEED      12					 //the lower the faster it goes
 
+extern volatile int SERVO_1 = 0;
+extern volatile int SERVO_2 = 0;
+extern volatile int SERVO_3 = 0;
+extern volatile int SERVO_4 = 0;
 
-void delay(int time){
-	int inner_count = 6000;
-	int outer_count = 2000;
-	int secs = time;
-	while(secs){
-		//6000*2000 should be the number of cycles in sec... it isn't going to be perfect but it should work
-		while(outer_count){
-			while(inner_count){
-				--inner_count;
-			}
-			--outer_count;
-		}
-		--secs;
-	}
-}
-void straight(int time){
-	left_forward = 1;
-	right_forward = 1;
-	delay(time);
-}
-void left(int degrees){
-	left_forward = 0;
-	right_forward = 1;
-	delay(1);
-}
-void right(int degrees){
-	left_forward = 1;
-	right_forward = 0;
-	delay(1);
-}
-void reverse(int time){
-	left_forward = 0;
-	right_forward = 0;
-	delay(time);
-}
 int main(void) {
-	eZ430X_init(_12MHZ);
+	eZ430X_init(_1MHZ);
 	WDTCTL = WDTPW | WDTHOLD;	// Stop watchdog timer
+
 	P4DIR |= BIT4 | BIT5;                           // P4.4 (TB1/A13)
 	P4SEL |= BIT4 | BIT5;							// P4.5 (TB2/A14)
 	P2DIR |= BIT3 | BIT4;
@@ -122,54 +103,70 @@ int main(void) {
 	TBCCTL2 = OUTMOD_3;                      // set/reset
 
 	//TACCTL0 = CCIE;
-	//TACTL |= TASSEL_2 | ID_3 | MC_1 | TAIE;   // SMCLK/8, up mode, interrupt enable
-	//TACCR0 = TIMERA_FREQ;                    // frame rate
-	//TACCTL1 = OUTMOD_3;                      // set/reset
-	//TACCTL2 = OUTMOD_3;
-	__bis_SR_register(GIE);       //interrupts enabled
+	TACTL |= TASSEL_2 | ID_3 | MC_1 | TAIE;   // SMCLK/8, up mode, interrupt enable
+	TACCR0 = TIMERA_FREQ;                    // frame rate
+	TACCTL1 = OUTMOD_3;                      // set/reset
+	TACCTL2 = OUTMOD_3;
+	__bis_SR_register(LPM0_bits+GIE);       //interrupts enabled
 
 	while(1){
-		straight(2);
-		right(90);
 	}
 
-	return 0;
 }
 
+#pragma vector = TIMERA0_VECTOR
+__interrupt void TIMERA0_ISR(void)
+{
+	   if (SERVO_1){
+		   TACCR1 = TIMERA_FREQ - SERVO_RIGHT;
+	   }
+	   else{
+		   TACCR1 = TIMERA_FREQ - SERVO_LEFT;
+	   }
+	   __bic_SR_register_on_exit(LPM0_bits);//Clear CPUOFF bit from 0(SR)
+} // end TIMERA0_ISR
 
-   // configure TimerB to use TIMERB1_VECTOR
+#pragma vector = TIMERA1_VECTOR
+__interrupt void TIMERA1_ISR(void)
+{
+	   if (SERVO_2){
+		   TACCR2 = TIMERA_FREQ - SERVO_RIGHT;
+	   }
+	   else{
+		   TACCR2 = TIMERA_FREQ - SERVO_LEFT;
+	   }
+	   __bic_SR_register_on_exit(LPM0_bits);//Clear CPUOFF bit from 0(SR)
+} // end TIMERA1_ISR
+
+#pragma vector = TIMERB0_VECTOR
+__interrupt void TIMERB0_ISR(void)
+{
+	   if (SERVO_3){
+		   TBCCR1 = TIMERB_FREQ - SERVO_RIGHT;
+	   }
+	   else{
+		   TBCCR1 = TIMERB_FREQ - SERVO_LEFT;
+	   }
+	   __bic_SR_register_on_exit(LPM0_bits);//Clear CPUOFF bit from 0(SR)
+} // end TIMERB0_ISR
 
 #pragma vector = TIMERB1_VECTOR
-
 __interrupt void TIMERB1_ISR(void)
 {
-
-   if (left_forward == 1){
-	   TBCCR1 = TIMERB_FREQ - SERVO_LEFT;
-   }
-   else{
-	   TBCCR1 = TIMERB_FREQ - SERVO_RIGHT;
-   }
-
-   if (right_forward == 1){
-	   TBCCR2 = TIMERB_FREQ - SERVO_RIGHT;
-   }
-   else{
-	   TBCCR2 = TIMERB_FREQ - SERVO_LEFT;
-   }
-   __bic_SR_register_on_exit(LPM0_bits);    // Clear CPUOFF bit from 0(SR)
-
-
-
+	   if (SERVO_4){
+		   TBCCR2 = TIMERB_FREQ - SERVO_RIGHT;
+	   }
+	   else{
+		   TBCCR2 = TIMERB_FREQ - SERVO_LEFT;
+	   }
+	   __bic_SR_register_on_exit(LPM0_bits);//Clear CPUOFF bit from 0(SR)
 } // end TIMERB1_ISR
+
 
 
 #pragma vector = WDT_VECTOR
 __interrupt void WDT_ISR(void)
-{
-
-}
-
+{}
 #pragma vector = NMI_VECTOR
 __interrupt void NMI_ISR(void)
 {}
@@ -178,48 +175,6 @@ __interrupt void PORT1_ISR(void)
 {}
 #pragma vector = PORT2_VECTOR
 __interrupt void PORT2_ISR(void)
-{}
-#pragma vector = TIMERA0_VECTOR
-__interrupt void TIMERA0_ISR(void)
-{
-	/*static int servo_speed = 16;
-		   static int servo_pulse = SERVO_RIGHT;
-		   static int servo_direction = 1;
-
-		   if (TAIV != 0x000A) return;              // acknowledge interrupt
-		   if (servo_direction)
-		   {
-		      servo_pulse += FREQUENCY(1800) / SERVO_SPEED;
-		      if (servo_pulse > SERVO_LEFT)
-		      {
-		         servo_direction = 0;
-		      }
-		   }
-		   else
-		   {
-		      servo_pulse -= FREQUENCY(1800) / SERVO_SPEED;
-		      if (servo_pulse < SERVO_RIGHT)
-		      {
-		         servo_direction = 1;
-		      }
-		   }
-		   //TBCCR1 = TIMERB_FREQ - servo_pulse;
-		   //TBCCR2 = TIMERB_FREQ - servo_pulse;
-		   TACCR2 = TIMERA_FREQ - servo_pulse;
-		   TACCR1 = TIMERA_FREQ - servo_pulse;
-		//   sys_event |= TIMERB_INT;
-//		LED_GREEN_TOGGLE;
-		__bic_SR_register_on_exit(LPM0_bits);    // Clear CPUOFF bit from 0(SR)
- */
-}
-#pragma vector = TIMERA1_VECTOR
-__interrupt void TIMERA1_ISR(void)
-{
-
-} // end TIMERB1_ISR
-
-#pragma vector = TIMERB0_VECTOR
-__interrupt void TIMERB0_ISR(void)
 {}
 #pragma vector = USCIAB0TX_VECTOR
 __interrupt void USCIAB0TX_ISR(void)
